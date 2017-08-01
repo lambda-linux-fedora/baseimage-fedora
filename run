@@ -1,0 +1,75 @@
+#!/usr/bin/python3
+
+import shlex
+import subprocess
+import sys
+
+install_pkgs = [
+    '/tmp/docker-build/runit-2.1.2-1.4.ll1.x86_64.rpm', 'cronie', 'rsyslog'
+]
+
+for install_pkgs in install_pkgs:
+    cmd = "dnf install -y %s" % install_pkgs
+    print("Running %s..." % cmd)
+    p = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE)
+    while p.poll() is None:
+        l = p.stdout.readline()
+        if l == b'':
+            continue
+        sys.stdout.write(str(l, 'utf-8'))
+
+# customize image
+steps = [
+    # root password already disabled
+
+    # root account already setup
+
+    # disable imjournal
+    "sed -i -e '/imjournal/d' /etc/rsyslog.conf",
+    "sed -i -e 's/off/on/g' /etc/rsyslog.conf",
+
+    # setup ll-user account
+    '/usr/sbin/groupadd -g 500 ll-user',
+    '/usr/sbin/useradd -d /home/ll-user -g ll-user -m -N -u 500 ll-user',
+
+    # add docker_env group
+    '/usr/sbin/groupadd -g 8377 docker_env',
+
+    # setup container environment
+    'mkdir -p /etc/container_environment',
+    'cp /tmp/docker-build/baseimage-fedora/etc-container_environment/HOME /etc/container_environment',
+    'cp /tmp/docker-build/baseimage-fedora/etc-container_environment/LANG /etc/container_environment',
+    'cp /tmp/docker-build/baseimage-fedora/etc-container_environment/LC_CTYPE /etc/container_environment',
+    'cp /tmp/docker-build/baseimage-fedora/etc-container_environment/PS1 /etc/container_environment',
+    'cp /tmp/docker-build/baseimage-fedora/etc-container_environment/TERM /etc/container_environment',
+    'touch /etc/container_environment.sh',
+    'touch /etc/container_environment.json',
+    'chmod 700 /etc/container_environment',
+    'chown :8377 /etc/container_environment.sh /etc/container_environment.json',
+    'chmod 640 /etc/container_environment.sh /etc/container_environment.json',
+    'ln -s /etc/container_environment.sh /etc/profile.d',
+
+    # setup my_init
+    'cp /tmp/docker-build/baseimage-fedora/image/my_init /sbin',
+    'chmod 755 /sbin/my_init',
+    'mkdir -p /etc/my_init.d',
+
+    # setup setuser
+    'cp /tmp/docker-build/baseimage-fedora/image/setuser /sbin',
+    'chmod 755 /sbin/setuser',
+
+    # setup rsyslog
+    'mkdir -p /etc/service/rsyslog',
+    'cp /tmp/docker-build/baseimage-fedora/etc-runit-rsyslog/run /etc/service/rsyslog',
+    'chmod 755 /etc/service/rsyslog/run',
+
+    # setup crond
+    # update pam.d for cron
+    "sed -i -e '/^session.*required.*pam_loginuid.so$/d' /etc/pam.d/crond",
+    'mkdir -p /etc/service/crond',
+    'cp /tmp/docker-build/baseimage-fedora/etc-runit-crond/run /etc/service/crond',
+    'chmod 755 /etc/service/crond/run',
+]
+for step in steps:
+    print("Running %s..." % step)
+    subprocess.check_output(shlex.split(step))
